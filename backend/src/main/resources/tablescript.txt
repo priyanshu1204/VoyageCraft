@@ -1,0 +1,371 @@
+-- VoyageCraft Database Schema (MySQL/H2 Compatible)
+-- Total Tables: 25 (covering all 15 User Stories)
+
+CREATE DATABASE IF NOT EXISTS voyagecraft;
+USE voyagecraft;
+
+-- ==========================================
+-- US-01: Trip Creation & Dashboard (Core)
+-- ==========================================
+
+CREATE TABLE users (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    avatar_url VARCHAR(500),
+    phone VARCHAR(20),
+    preferred_currency VARCHAR(10) DEFAULT 'USD',
+    timezone VARCHAR(50) DEFAULT 'UTC',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE user_preferences (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+    user_id BIGINT NOT NULL,
+    theme VARCHAR(20) DEFAULT 'LIGHT',
+    email_notifications BOOLEAN DEFAULT TRUE,
+    push_notifications BOOLEAN DEFAULT TRUE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE trip_templates (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    description VARCHAR(2000),
+    destinations_json TEXT,
+    duration_days INT,
+    budget_estimate DECIMAL(12, 2),
+    category VARCHAR(50),
+    cover_image_url VARCHAR(500),
+    created_by BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE trips (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    description VARCHAR(2000),
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PLANNING', -- PLANNING, ACTIVE, COMPLETED, CANCELLED
+    budget_total DECIMAL(12, 2),
+    currency VARCHAR(10) DEFAULT 'USD',
+    cover_image_url VARCHAR(500),
+    pace VARCHAR(20) DEFAULT 'STANDARD', -- RELAXED, STANDARD, INTENSE
+    created_by BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE trip_destinations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    destination_name VARCHAR(200) NOT NULL,
+    country VARCHAR(100),
+    latitude DOUBLE,
+    longitude DOUBLE,
+    arrival_date DATE,
+    departure_date DATE,
+    order_index INT NOT NULL DEFAULT 0,
+    notes VARCHAR(1000),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+);
+
+CREATE TABLE trip_collaborators (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    role VARCHAR(20) NOT NULL, -- OWNER, EDITOR, VIEWER
+    invitation_status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING, ACCEPTED, DECLINED
+    invited_by BIGINT,
+    invited_at TIMESTAMP,
+    responded_at TIMESTAMP,
+    UNIQUE KEY uk_trip_user (trip_id, user_id),
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ==========================================
+-- US-02 to US-05: Itinerary Builder & Logistics
+-- ==========================================
+
+CREATE TABLE itinerary_days (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    destination_id BIGINT,
+    day_date DATE NOT NULL,
+    day_index INT NOT NULL,
+    theme VARCHAR(100),
+    notes VARCHAR(1000),
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (destination_id) REFERENCES trip_destinations(id) ON DELETE SET NULL
+);
+
+CREATE TABLE itinerary_items (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    itinerary_day_id BIGINT NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    description VARCHAR(2000),
+    start_time TIME,
+    end_time TIME,
+    place_id VARCHAR(200), -- Maps to places_cache or Google Places API
+    location_name VARCHAR(200),
+    location_address VARCHAR(500),
+    cost_estimate DECIMAL(10, 2),
+    category VARCHAR(50), -- ATTRACTION, FOOD, TRANSIT, LEISURE
+    order_index INT NOT NULL DEFAULT 0,
+    FOREIGN KEY (itinerary_day_id) REFERENCES itinerary_days(id) ON DELETE CASCADE
+);
+
+CREATE TABLE accommodations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    destination_id BIGINT,
+    name VARCHAR(200) NOT NULL,
+    address VARCHAR(500),
+    check_in_date DATE NOT NULL,
+    check_in_time TIME,
+    check_out_date DATE NOT NULL,
+    check_out_time TIME,
+    booking_reference VARCHAR(100),
+    cost DECIMAL(10, 2),
+    notes VARCHAR(1000),
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (destination_id) REFERENCES trip_destinations(id) ON DELETE SET NULL
+);
+
+CREATE TABLE transport_details (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    type VARCHAR(50) NOT NULL, -- FLIGHT, TRAIN, BUS, CAR_RENTAL
+    provider VARCHAR(100),
+    departure_location VARCHAR(200),
+    arrival_location VARCHAR(200),
+    departure_time DATETIME NOT NULL,
+    arrival_time DATETIME NOT NULL,
+    booking_reference VARCHAR(100),
+    cost DECIMAL(10, 2),
+    notes VARCHAR(1000),
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+);
+
+-- ==========================================
+-- US-06 & US-07: Budgeting & Expense Tracking
+-- ==========================================
+
+CREATE TABLE expenses (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    payer_id BIGINT NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'USD',
+    category VARCHAR(50), -- FOOD, STAY, TRAVEL, ACTIVITY, MISC
+    description VARCHAR(500) NOT NULL,
+    expense_date DATE NOT NULL,
+    receipt_image_url VARCHAR(500),
+    is_split BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (payer_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE expense_splits (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    expense_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    amount_owed DECIMAL(12, 2) NOT NULL,
+    is_settled BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ==========================================
+-- US-08 & US-09: Packing Lists & Checklists
+-- ==========================================
+
+CREATE TABLE checklists (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    type VARCHAR(50), -- PACKING, TODO, DOCUMENTS
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+);
+
+CREATE TABLE checklist_items (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    checklist_id BIGINT NOT NULL,
+    item_name VARCHAR(200) NOT NULL,
+    is_completed BOOLEAN DEFAULT FALSE,
+    assignee_id BIGINT,
+    order_index INT DEFAULT 0,
+    FOREIGN KEY (checklist_id) REFERENCES checklists(id) ON DELETE CASCADE,
+    FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ==========================================
+-- US-10 & US-11: Documents & Offline Access
+-- ==========================================
+
+CREATE TABLE documents (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    uploader_id BIGINT NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_url VARCHAR(500) NOT NULL,
+    file_type VARCHAR(50),
+    file_size BIGINT,
+    category VARCHAR(50), -- TICKET, ID, BOOKING, OTHER
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploader_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ==========================================
+-- US-12 & US-13: Discussions & Real-time Collab
+-- ==========================================
+
+CREATE TABLE discussions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    topic VARCHAR(200) NOT NULL,
+    created_by BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE comments (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    discussion_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (discussion_id) REFERENCES discussions(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ==========================================
+-- US-14: Smart Recommendations (Cache)
+-- ==========================================
+
+CREATE TABLE places_cache (
+    place_id VARCHAR(200) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    latitude DOUBLE,
+    longitude DOUBLE,
+    category VARCHAR(50),
+    rating DOUBLE,
+    address VARCHAR(500),
+    photo_url VARCHAR(500),
+    last_fetched TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE weather_cache (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    destination_id BIGINT NOT NULL,
+    forecast_date DATE NOT NULL,
+    min_temp DOUBLE,
+    max_temp DOUBLE,
+    condition_desc VARCHAR(100),
+    icon_code VARCHAR(50),
+    last_fetched TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (destination_id) REFERENCES trip_destinations(id) ON DELETE CASCADE
+);
+
+-- ==========================================
+-- US-15: Auditing, Notifications & System
+-- ==========================================
+
+CREATE TABLE activity_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    user_id BIGINT,
+    action_type VARCHAR(50) NOT NULL, -- CREATED, UPDATED, DELETED, INVITED
+    entity_type VARCHAR(50) NOT NULL, -- TRIP, ITINERARY, EXPENSE
+    entity_id BIGINT,
+    description VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE notifications (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    message VARCHAR(500) NOT NULL,
+    type VARCHAR(50) NOT NULL, -- INVITE, EXPENSE, REMINDER, MENTION
+    is_read BOOLEAN DEFAULT FALSE,
+    reference_id BIGINT, -- ID of the related entity
+    reference_type VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Support Tables for security and roles (Optional but good practice)
+CREATE TABLE roles (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE
+);
+
+CREATE TABLE user_roles (
+    user_id BIGINT NOT NULL,
+    role_id BIGINT NOT NULL,
+    PRIMARY KEY (user_id, role_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE password_reset_tokens (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    token VARCHAR(255) NOT NULL UNIQUE,
+    expiry_date DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE refresh_tokens (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    token VARCHAR(255) NOT NULL UNIQUE,
+    expiry_date DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ==========================================
+-- US-15: Quick Actions for Mobile Users
+-- ==========================================
+
+-- Quick Notes table (offline note capture with photos)
+CREATE TABLE quick_notes (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    content TEXT,
+    photo_urls LONGTEXT,
+    captured_latitude VARCHAR(50),
+    captured_longitude VARCHAR(50),
+    captured_location_name VARCHAR(200),
+    is_synced TINYINT(1) DEFAULT 1,
+    is_pinned TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Add check-in status columns for flight/stay shortcuts
+ALTER TABLE transport_details ADD COLUMN checked_in TINYINT(1) DEFAULT 0;
+ALTER TABLE stays ADD COLUMN checked_in TINYINT(1) DEFAULT 0;
+

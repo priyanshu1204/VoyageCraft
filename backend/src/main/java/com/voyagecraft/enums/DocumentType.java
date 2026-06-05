@@ -1,0 +1,5 @@
+package com.voyagecraft.enums;
+
+public enum DocumentType {
+    PASSPORT, VISA, TRAVEL_INSURANCE, BOARDING_PASS, HOTEL_BOOKING, DRIVERS_LICENSE, VACCINATION_CARD, ID_CARD, OTHER
+}

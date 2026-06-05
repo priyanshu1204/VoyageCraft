@@ -1,0 +1,19 @@
+# Frontend (React/Node)
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+
+# Backend (Spring Boot/Java)
+target/
+*.jar
+*.war
+.mvn/wrapper/maven-wrapper.jar
+application-secret.properties
+
+# IDEs and OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
